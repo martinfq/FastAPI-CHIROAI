@@ -1,15 +1,15 @@
-import os
+import logging
 import re
 from datetime import date, datetime
 from functools import lru_cache
 
 import cv2
 import numpy as np
-from paddleocr import PaddleOCR
+from rapidocr_onnxruntime import RapidOCR
 
 from app.models.ocr import OCRResult
 
-os.environ["FLAGS_log_level"] = "3"
+logger = logging.getLogger(__name__)
 
 # Crop region for this receipt layout (y1, y2, x1, x2)
 _CROP = (130, 480, 40, 350)
@@ -23,8 +23,11 @@ _MONTHS: dict[str, int] = {
 
 
 @lru_cache(maxsize=1)
-def _get_engine() -> PaddleOCR:
-    return PaddleOCR(lang="es")
+def _get_engine() -> RapidOCR:
+    logger.info("Initializing RapidOCR engine")
+    engine = RapidOCR()
+    logger.info("RapidOCR engine ready")
+    return engine
 
 
 def warmup() -> None:
@@ -36,6 +39,8 @@ def _preprocess(image_bytes: bytes) -> np.ndarray:
     """Decode image bytes and apply preprocessing pipeline entirely in memory."""
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Invalid image bytes")
 
     y1, y2, x1, x2 = _CROP
     crop = img[y1:y2, x1:x2]
@@ -48,7 +53,7 @@ def _preprocess(image_bytes: bytes) -> np.ndarray:
 
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
 
-    # PaddleOCR expects BGR (H, W, 3)
+    # RapidOCR accepts OpenCV-style BGR arrays.
     return cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
 
 
@@ -66,8 +71,8 @@ def _parse_date(text: str) -> date | None:
 def extract_receipt_data(image_bytes: bytes) -> OCRResult:
     """Full pipeline: raw image bytes → structured receipt data."""
     img = _preprocess(image_bytes)
-    prediction = _get_engine().predict(img)
-    texts = [t.strip().lower() for t in prediction[0]["rec_texts"]]
+    prediction, _ = _get_engine()(img)
+    texts = [line[1].strip().lower() for line in prediction or [] if len(line) > 1 and line[1]]
 
     valor: float | None = None
     fecha: date | None = None
