@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.routers import telegram
+from app.routers import routes
 from app.services import ocr as ocr_service
 
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ia-money", lifespan=lifespan)
 
-app.include_router(telegram.router)
+app.include_router(routes.router)
 
 
 @app.get("/health")
